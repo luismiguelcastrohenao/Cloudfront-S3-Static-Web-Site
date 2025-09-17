@@ -1,0 +1,99 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: "AWS"  # Contiene AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY
+
+steps:
+- checkout: self   # Checkout - Clona tu repositorio dentro del entorno de CI para trabajar con el código fuente
+  displayName: "Checkout del repositorio"
+
+# --- Node (para Next.js build/export) ---
+- task: NodeTool@0
+  inputs:
+    versionSource: 'spec'
+    versionSpec: '18.x'
+  displayName: 'Install Node.js (for Next build)'
+
+- script: |
+    npm ci
+  displayName: 'Install dependencies'
+
+- script: |
+    npm run build
+  displayName: 'Build Next.js (produce out/)'
+
+# Instalar AWS CLI v2 - Descarga e instala AWS CLI v2, necesaria para interactuar con servicios de AWS
+- script: |
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    sudo ./aws/install --update
+  displayName: "Instalar AWS CLI v2"
+
+- task: TerraformInstaller@1
+  displayName: "Instalar Terraform"
+  inputs:
+    terraformVersion: 'latest'
+
+- task: TerraformTaskV4@4
+  displayName: "Terraform Init"
+  inputs:
+    provider: 'aws'
+    command: 'init'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
+    backendServiceAWS: 'aws_terraform_us-east-1'
+    backendAWSBucketName: 'luism-tf-states'
+    backendAWSKey: 'luism-static-site/terraform.tfstate'
+
+- task: TerraformTaskV4@4
+  displayName: "Terraform Plan"
+  inputs:
+    provider: 'aws'
+    command: 'plan'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
+    environmentServiceNameAWS: 'aws_terraform_us-east-1'
+
+- task: TerraformTaskV4@4
+  displayName: "Terraform Apply"
+  inputs:
+    provider: 'aws'
+    command: 'apply'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
+    environmentServiceNameAWS: 'aws_terraform_us-east-1'
+
+- script: |
+    set -e
+    BUCKET=$(terraform output -raw bucket_name)
+    DIST_ID=$(terraform output -raw cloudfront_distribution_id)
+
+    echo "##vso[task.setvariable variable=S3_BUCKET]$BUCKET"
+    echo "##vso[task.setvariable variable=CLOUDFRONT_DISTRIBUTION_ID]$DIST_ID"
+  displayName: 'Export outputs (S3_BUCKET y CLOUDFRONT_DISTRIBUTION_ID)'
+  workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
+
+- task: S3Upload@1
+  displayName: 'Upload out/ -> S3'
+  inputs:
+    awsCredentials: 'aws_connect'
+    regionName: 'us-east-2'
+    bucketName: '$(S3_BUCKET)'
+    sourceFolder: '$(Build.SourcesDirectory)/out'
+    globExpressions: '**'
+
+- task: AWSCLI@1
+  displayName: 'CloudFront invalidation'
+  inputs:
+    awsCredentials: 'aws_connect'
+    regionName: 'us-east-2'
+    awsCommand: 'cloudfront'                     # Servicio
+    awsSubCommand: 'create-invalidation'         # Acción
+    awsArguments: '--distribution-id $(CLOUDFRONT_DISTRIBUTION_ID) --paths "/*"'       # Parámetros
+
