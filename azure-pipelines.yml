@@ -49,7 +49,7 @@ steps:
     provider: 'aws'
     command: 'init'
     workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
-    backendServiceAWS: 'aws_terraform_us-east-1'
+    backendServiceAWS: 'aws_terraform'
     backendAWSBucketName: 'luism-tf-states'
     backendAWSKey: 'luism-static-site/terraform.tfstate'
 
@@ -59,7 +59,7 @@ steps:
     provider: 'aws'
     command: 'plan'
     workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
-    environmentServiceNameAWS: 'aws_terraform_us-east-1'
+    environmentServiceNameAWS: 'aws_terraform'
 
 - task: TerraformTaskV4@4
   displayName: "Terraform Apply"
@@ -67,7 +67,7 @@ steps:
     provider: 'aws'
     command: 'apply'
     workingDirectory: '$(System.DefaultWorkingDirectory)/.iac'
-    environmentServiceNameAWS: 'aws_terraform_us-east-1'
+    environmentServiceNameAWS: 'aws_terraform'
 
 - script: |
     set -e
